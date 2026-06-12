@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>CineAI Flow — Anime Storyboard Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366f1',
+                        primaryHover: '#4f46e5',
+                        accent: '#e879f9',
+                        darker: '#0d0f14',
+                        panel: '#161820',
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primaryHover: #4f46e5;
+            --accent: #e879f9;
+            --darker: #0d0f14;
+            --panel: #161820;
+        }
+        body { background: #0a0b0e; color: #f3f4f6; font-family: 'Inter', sans-serif; min-height: 100vh; display: flex; flex-direction: column; }
+        .font-display { font-family: 'Syne', sans-serif; }
+        .glass-panel { background: rgba(26,29,36,0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
+        .glass-modal { background: rgba(15,17,21,0.97); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
+        .step-transition { transition: all 0.45s cubic-bezier(0.4, 0, 0.2, 1); }
+        .hide-step { opacity: 0; transform: translateY(24px); pointer-events: none; position: absolute; width: 100%; }
+        .show-step { opacity: 1; transform: translateY(0); position: relative; }
+        .loader-dots div { animation-timing-function: cubic-bezier(0, 1, 1, 0); }
+        .loader-dots div:nth-child(1) { left: 8px; animation: ld1 0.6s infinite; }
+        .loader-dots div:nth-child(2) { left: 8px; animation: ld2 0.6s infinite; }
+        .loader-dots div:nth-child(3) { left: 32px; animation: ld2 0.6s infinite; }
+        .loader-dots div:nth-child(4) { left: 56px; animation: ld3 0.6s infinite; }
+        @keyframes ld1 { 0%{transform:scale(0)} 100%{transform:scale(1)} }
+        @keyframes ld3 { 0%{transform:scale(1)} 100%{transform:scale(0)} }
+        @keyframes ld2 { 0%{transform:translate(0,0)} 100%{transform:translate(24px,0)} }
+        .gradient-text { background: linear-gradient(to right, #818cf8, #e879f9); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .style-card { transition: all 0.2s; cursor: pointer; }
+        .style-card.selected { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.4); }
+        .provider-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
+        .badge-gemini { background: rgba(66,133,244,0.2); color: #93c5fd; border: 1px solid rgba(66,133,244,0.3); }
+        .badge-groq   { background: rgba(139,92,246,0.2); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); }
+        .badge-gpt    { background: rgba(16,163,127,0.2); color: #6ee7b7; border: 1px solid rgba(16,163,127,0.3); }
+        .progress-anim { animation: progbar 18s ease forwards; }
+        @keyframes progbar { 0%{width:5%} 80%{width:85%} 100%{width:95%} }
+        .line-clamp-3 { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+        .line-clamp-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+        .voice-btn { transition: all 0.2s; }
+        .voice-btn.playing { background-color: #ec4899; color: white; }
+        /* Custom modal */
+        .custom-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:100; align-items:center; justify-content:center; }
+        .custom-modal-overlay.active { display:flex; }
+        /* Toggle switch */
+        .toggle-track { width:36px; height:20px; border-radius:99px; transition:background 0.2s; display:inline-block; position:relative; }
+        .toggle-thumb { width:14px; height:14px; border-radius:50%; background:#fff; position:absolute; top:3px; left:3px; transition:transform 0.2s; }
+        /* Multi-progress bar */
+        .scene-progress-bar { height:3px; background:#1e2030; border-radius:99px; overflow:hidden; margin-top:6px; }
+        .scene-progress-fill { height:100%; background:linear-gradient(to right,#6366f1,#e879f9); transition:width 0.4s; }
+        /* Edit textarea */
+        .edit-area { background:#0d0f14; border:1px solid #374151; border-radius:8px; padding:8px; color:#f3f4f6; font-size:12px; width:100%; resize:vertical; }
+        /* Sweep dot animation */
+        @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        .dot-active { animation: pulse-dot 1s infinite; }
+    </style>
+</head>
+<body>
+
+<!-- ======================== CUSTOM MODAL (ganti prompt/confirm) ======================== -->
+<div id="custom-modal-overlay" class="custom-modal-overlay">
+    <div class="glass-modal rounded-2xl p-6 w-80 shadow-2xl">
+        <h3 id="modal-title" class="font-bold mb-2 text-base"></h3>
+        <p id="modal-body" class="text-sm text-gray-300 mb-4"></p>
+        <input id="modal-input" type="number" min="1" max="10" value="3" class="w-full bg-darker border border-gray-700 rounded-lg px-3 py-2 text-sm mb-4 hidden">
+        <div class="flex gap-3 justify-end">
+            <button id="modal-cancel" class="px-4 py-2 rounded-lg bg-gray-700 text-sm hover:bg-gray-600">Batal</button>
+            <button id="modal-confirm" class="px-4 py-2 rounded-lg bg-primary text-sm font-bold hover:bg-primaryHover">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== API MODAL ======================== -->
+<div id="api-modal-overlay" onclick="handleOverlayClick(event)" class="fixed inset-0 bg-black/60 z-50 hidden backdrop-blur-sm items-start justify-end">
+    <div class="glass-modal p-5 flex flex-col gap-4 shadow-2xl mt-16 mr-3 w-80 max-h-[calc(100vh-80px)] overflow-auto rounded-2xl">
+        <div class="flex justify-between items-center">
+            <h3 class="font-bold text-sm">API Keys</h3>
+            <div class="flex items-center gap-1">
+                <div id="sweep-dot" class="w-2 h-2 rounded-full bg-gray-600 inline-block"></div>
+                <span id="sweep-label" class="text-[10px] text-gray-500 ml-1">Idle</span>
+            </div>
+        </div>
+        <!-- Toggle switch custom -->
+        <label class="flex items-center gap-3 cursor-pointer bg-darker rounded-xl px-3 py-2 border border-gray-700" onclick="toggleSweep()">
+            <div class="toggle-track" id="sweep-track" style="background:#6366f1">
+                <div class="toggle-thumb" id="sweep-thumb" style="transform:translateX(16px)"></div>
+            </div>
+            <div class="text-xs font-semibold">Auto-Sweep AI</div>
+        </label>
+        <input type="hidden" id="auto-sweep-toggle" value="1">
+
+        <div><label class="text-[11px] font-semibold text-gray-400">Gemini 2.5 Flash</label>
+        <input type="password" id="key-gemini" placeholder="AIza... atau aq..." class="w-full bg-darker border border-gray-700 rounded-lg px-3 py-2 text-xs mt-1" oninput="saveKeys()"></div>
+
+        <div><label class="text-[11px] font-semibold text-gray-400">Groq Llama 3.3</label>
+        <input type="password" id="key-groq" placeholder="gsk_..." class="w-full bg-darker border border-gray-700 rounded-lg px-3 py-2 text-xs mt-1" oninput="saveKeys()"></div>
+
+        <div><label class="text-[11px] font-semibold text-gray-400">GPT-4o mini</label>
+        <input type="password" id="key-gpt" placeholder="sk-..." class="w-full bg-darker border border-gray-700 rounded-lg px-3 py-2 text-xs mt-1" oninput="saveKeys()"></div>
+
+        <button onclick="testProviders()" class="w-full py-2 bg-primary/10 border border-primary/30 rounded-lg text-xs font-bold text-primary hover:bg-primary/20">🧪 Test Semua Provider</button>
+    </div>
+</div>
+
+<!-- ======================== TOAST ======================== -->
+<div id="toast" class="fixed top-5 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-5 py-2.5 rounded-full shadow-lg z-[60] transition-opacity duration-300 opacity-0 pointer-events-none flex items-center gap-2 text-sm">
+    <i id="toast-icon" class="fas fa-info-circle text-primary"></i>
+    <span id="toast-msg"></span>
+</div>
+
+<!-- ======================== HEADER ======================== -->
+<header class="border-b border-gray-800 bg-darker/80 sticky top-0 z-40 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center"><i class="fas fa-film text-sm"></i></div>
+            <h1 class="text-lg font-bold font-display">Cine<span class="text-primary">AI</span> Flow <span class="text-xs text-gray-400 hidden sm:inline">Anime Studio</span></h1>
+        </div>
+        <!-- Step indicator -->
+        <div class="hidden md:flex items-center gap-1 text-[10px] text-gray-600" id="step-indicator">
+            <span id="si-1" class="px-2 py-0.5 rounded text-primary font-bold">① Gaya</span>
+            <span class="text-gray-700">›</span><span id="si-2" class="px-2 py-0.5 rounded">② Setting</span>
+            <span class="text-gray-700">›</span><span id="si-3" class="px-2 py-0.5 rounded">③ Ide</span>
+            <span class="text-gray-700">›</span><span id="si-4" class="px-2 py-0.5 rounded">④ Alur</span>
+            <span class="text-gray-700">›</span><span id="si-5" class="px-2 py-0.5 rounded">⑤ Karakter</span>
+            <span class="text-gray-700">›</span><span id="si-6" class="px-2 py-0.5 rounded">⑥ Judul</span>
+            <span class="text-gray-700">›</span><span id="si-7" class="px-2 py-0.5 rounded">⑦ Board</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="toggleApiModal()" class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-700 bg-panel hover:bg-gray-800">
+                <i class="fas fa-key text-[11px]"></i> <span class="hidden sm:inline">API Key</span>
+                <span id="api-key-dot" class="w-1.5 h-1.5 rounded-full bg-gray-600 ml-0.5"></span>
+            </button>
+            <button onclick="resetApp()" class="text-gray-400 hover:text-white text-xs px-2 py-1.5 rounded-lg hover:bg-gray-800"><i class="fas fa-redo-alt"></i></button>
+        </div>
+    </div>
+</header>
+
+<main class="flex-grow w-full max-w-6xl mx-auto px-4 sm:px-6 py-8 relative overflow-hidden flex flex-col">
+
+<!-- ======================== STEP 1: Anime Styles ======================== -->
+<section id="step-1" class="step-transition show-step flex-grow flex flex-col justify-center max-w-4xl mx-auto w-full">
+    <div class="text-center mb-8">
+        <h2 class="text-3xl md:text-4xl font-bold font-display mb-3">Pilih Gaya Anime 2D</h2>
+        <p class="text-gray-400 text-sm">Klik gaya, lihat referensi film terkenal</p>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <button onclick="selectAnimeStyle('Studio Ghibli')" data-style="Studio Ghibli" class="style-card group relative rounded-2xl overflow-hidden aspect-[3/4] border-2 border-transparent hover:border-primary transition-all text-left">
+            <div class="absolute inset-0 bg-gradient-to-br from-sky-900 to-indigo-800 flex items-center justify-center"><i class="fas fa-leaf text-5xl text-sky-300"></i></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 w-full p-3"><h3 class="font-bold">Studio Ghibli</h3><p class="text-xs text-gray-200">Spirited Away, Totoro</p></div>
+        </button>
+        <button onclick="selectAnimeStyle('Shounen Battle')" data-style="Shounen Battle" class="style-card group relative rounded-2xl overflow-hidden aspect-[3/4] border-2 border-transparent hover:border-primary transition-all">
+            <div class="absolute inset-0 bg-gradient-to-br from-red-950 to-orange-900 flex items-center justify-center"><i class="fas fa-bolt text-5xl text-orange-300"></i></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 w-full p-3"><h3 class="font-bold">Shounen Battle</h3><p class="text-xs text-gray-200">Naruto, Jujutsu Kaisen</p></div>
+        </button>
+        <button onclick="selectAnimeStyle('Isekai Fantasy')" data-style="Isekai Fantasy" class="style-card group relative rounded-2xl overflow-hidden aspect-[3/4] border-2 border-transparent hover:border-primary transition-all">
+            <div class="absolute inset-0 bg-gradient-to-br from-purple-950 to-pink-900 flex items-center justify-center"><i class="fas fa-hat-wizard text-5xl text-purple-300"></i></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 w-full p-3"><h3 class="font-bold">Isekai Fantasy</h3><p class="text-xs text-gray-200">Re:Zero, Mushoku Tensei</p></div>
+        </button>
+        <button onclick="selectAnimeStyle('Donghua')" data-style="Donghua" class="style-card group relative rounded-2xl overflow-hidden aspect-[3/4] border-2 border-transparent hover:border-primary transition-all">
+            <div class="absolute inset-0 bg-gradient-to-br from-emerald-900 to-cyan-900 flex items-center justify-center"><i class="fas fa-mountain text-5xl text-emerald-300"></i></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 w-full p-3"><h3 class="font-bold">Donghua</h3><p class="text-xs text-gray-200">Heaven Official's Blessing</p></div>
+        </button>
+        <button onclick="selectAnimeStyle('Shoujo Romance')" data-style="Shoujo Romance" class="style-card group relative rounded-2xl overflow-hidden aspect-[3/4] border-2 border-transparent hover:border-primary transition-all">
+            <div class="absolute inset-0 bg-gradient-to-br from-pink-950 to-rose-800 flex items-center justify-center"><i class="fas fa-heart text-5xl text-pink-300"></i></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 w-full p-3"><h3 class="font-bold">Shoujo Romance</h3><p class="text-xs text-gray-200">Fruits Basket</p></div>
+        </button>
+        <button onclick="selectAnimeStyle('90s Retro Anime')" data-style="90s Retro Anime" class="style-card group relative rounded-2xl overflow-hidden aspect-[3/4] border-2 border-transparent hover:border-primary transition-all">
+            <div class="absolute inset-0 bg-gradient-to-br from-yellow-900 to-amber-800 flex items-center justify-center"><i class="fas fa-tv text-5xl text-amber-300"></i></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 w-full p-3"><h3 class="font-bold">90s Retro</h3><p class="text-xs text-gray-200">Evangelion, Bebop</p></div>
+        </button>
+    </div>
+</section>
+
+<!-- ======================== STEP 2: Settings ======================== -->
+<section id="step-2" class="step-transition hide-step flex-grow flex flex-col justify-center max-w-2xl mx-auto w-full">
+    <button onclick="prevStep(1)" class="text-gray-400 mb-5 flex items-center hover:text-white w-fit text-sm"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+    <div class="glass-panel p-7 rounded-3xl">
+        <h2 class="text-2xl font-bold font-display mb-6 border-b border-gray-700 pb-4">Pengaturan Film</h2>
+        <div class="space-y-6">
+            <!-- Format Layar + Preview -->
+            <div>
+                <label class="block text-sm font-medium mb-3">Format Layar</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="setRatio('16:9')" id="btn-ratio-169" class="py-4 rounded-xl border border-primary bg-primary/10 text-white font-medium">
+                        <div class="flex justify-center mb-2"><div class="w-10 h-6 border-2 border-current rounded"></div></div>
+                        Landscape (16:9)
+                    </button>
+                    <button onclick="setRatio('9:16')" id="btn-ratio-916" class="py-4 rounded-xl border border-gray-700 bg-panel text-gray-400 font-medium">
+                        <div class="flex justify-center mb-2"><div class="w-5 h-9 border-2 border-current rounded"></div></div>
+                        Portrait (9:16)
+                    </button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-3">Durasi per Scene (detik)</label>
+                <input type="range" id="duration-slider" min="15" max="120" step="5" value="45" class="w-full" oninput="document.getElementById('duration-value').innerText=this.value+' detik'; updateEstimatedScenes()">
+                <span id="duration-value" class="text-primary font-bold ml-2">45 detik</span>
+                <p class="text-xs text-gray-400 mt-1">Keyframe setiap 5 detik</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-3">Total Durasi Film (menit)</label>
+                <input type="number" id="total-minutes" min="1" max="60" step="1" value="10" oninput="updateEstimatedScenes()" class="w-full bg-darker border border-gray-700 rounded-xl px-4 py-3 text-white">
+                <p class="text-xs text-gray-400 mt-1">Aplikasi akan menghitung estimasi jumlah scene</p>
+            </div>
+            <div class="bg-primary/10 p-3 rounded-xl text-center">
+                <span class="text-sm">🎬 Estimasi jumlah scene: <strong id="estimated-scenes">13</strong> scene</span>
+                <p id="scene-warning" class="text-xs text-yellow-400 hidden mt-1">⚠️ Jumlah scene &gt; 50. Perbesar durasi per scene.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-3">Bahasa Narasi</label>
+                <select id="lang-select" class="w-full bg-darker border border-gray-700 rounded-xl px-4 py-3">
+                    <option value="Indonesian">Bahasa Indonesia</option>
+                    <option value="English">English</option>
+                </select>
+            </div>
+        </div>
+        <div class="mt-7 pt-5 border-t border-gray-700 flex justify-end">
+            <button onclick="goToStep3()" class="bg-primary hover:bg-primaryHover text-white px-8 py-3 rounded-xl font-medium">Lanjut <i class="fas fa-arrow-right ml-2"></i></button>
+        </div>
+    </div>
+</section>
+
+<!-- ======================== STEP 3: Idea ======================== -->
+<section id="step-3" class="step-transition hide-step flex-grow flex flex-col max-w-3xl mx-auto w-full">
+    <button onclick="prevStep(2)" class="text-gray-400 mb-5 flex items-center hover:text-white w-fit text-sm"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+    <h2 class="text-2xl font-bold font-display mb-4">✍️ Ceritakan Ideamu</h2>
+    <textarea id="idea-input" rows="5" class="w-full bg-panel border border-gray-700 rounded-2xl p-6 text-white focus:outline-none focus:border-primary resize-none" placeholder="Contoh: Seorang gadis desa yang bisa bicara dengan roh hutan..."></textarea>
+    <div class="mt-5 flex justify-end">
+        <button onclick="fillInspiration()" class="px-4 py-2 bg-darker border border-gray-600 rounded-lg text-xs hover:bg-gray-800"><i class="fas fa-lightbulb text-yellow-400 mr-2"></i> Inspirasi</button>
+    </div>
+    <div class="mt-7 flex justify-center">
+        <button onclick="submitIdea()" class="bg-white text-black hover:bg-gray-200 px-10 py-4 rounded-full font-bold transition">Mulai <i class="fas fa-wand-magic-sparkles ml-2"></i></button>
+    </div>
+</section>
+
+<!-- ======================== STEP 4: Format Options ======================== -->
+<section id="step-4" class="step-transition hide-step flex-grow flex flex-col max-w-3xl mx-auto w-full">
+    <div class="glass-panel p-6 rounded-3xl">
+        <div id="chat-container" class="space-y-5">
+            <div class="flex justify-end"><div class="bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-none px-5 py-4"><p id="chat-user-idea" class="text-sm"></p></div></div>
+            <div class="flex justify-start" id="ai-typing"><div class="bg-darker border border-gray-700 rounded-2xl rounded-tl-none px-5 py-4 flex items-center gap-2"><div class="loader-dots relative w-16 h-4"><div class="absolute top-1 w-2 h-2 rounded-full bg-primary"></div><div class="absolute top-1 w-2 h-2 rounded-full bg-primary"></div><div class="absolute top-1 w-2 h-2 rounded-full bg-primary"></div><div class="absolute top-1 w-2 h-2 rounded-full bg-primary"></div></div><span class="text-xs text-gray-500">AI merancang alur...</span></div></div>
+            <div class="flex justify-start hidden" id="ai-question">
+                <div class="bg-darker border border-gray-700 rounded-2xl rounded-tl-none px-5 py-5 w-full">
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="w-7 h-7 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center"><i class="fas fa-robot text-xs"></i></div>
+                        <span class="font-bold text-primary">CineAI</span>
+                        <span id="format-provider-badge" class="provider-badge badge-gemini hidden ml-2"></span>
+                    </div>
+                    <p class="text-gray-200 mb-4 text-sm">Pilih arah cerita:</p>
+                    <div id="format-options-container" class="flex flex-col gap-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ======================== STEP 5: Character ======================== -->
+<section id="step-5" class="step-transition hide-step flex-grow flex flex-col max-w-3xl mx-auto w-full">
+    <button onclick="prevStep(4)" class="text-gray-400 mb-3 flex items-center hover:text-white w-fit text-sm"><i class="fas fa-arrow-left mr-2"></i> Kembali ke alur</button>
+    <div class="glass-panel p-6 rounded-3xl">
+        <h2 class="text-2xl font-bold font-display mb-2">🎭 Karakter Utama</h2>
+        <p class="text-sm text-gray-400 mb-4">AI menciptakan karakter utama. Edit sesuai selera.</p>
+        <div id="char-loading" class="flex justify-center py-8">
+            <div class="provider-badge badge-gemini"><i class="fas fa-circle-notch fa-spin mr-1"></i> <span id="char-loading-label">Menghasilkan karakter...</span></div>
+        </div>
+        <div id="char-content" class="hidden space-y-4">
+            <div><label class="text-xs font-bold text-gray-400 uppercase">Nama Karakter</label><input type="text" id="char-name" class="w-full bg-darker border border-gray-700 rounded-xl px-4 py-2 text-white mt-1"></div>
+            <div><label class="text-xs font-bold text-gray-400 uppercase">Kepribadian</label><textarea id="char-personality" rows="2" class="w-full bg-darker border border-gray-700 rounded-xl px-4 py-2 text-sm mt-1"></textarea></div>
+            <div><label class="text-xs font-bold text-gray-400 uppercase">Penampilan Fisik</label><textarea id="char-appearance" rows="2" class="w-full bg-darker border border-gray-700 rounded-xl px-4 py-2 text-sm mt-1"></textarea></div>
+            <div><label class="text-xs font-bold text-gray-400 uppercase">Prompt Image (copy ke generator gambar)</label><textarea id="char-prompt" rows="4" class="w-full bg-darker border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono mt-1"></textarea></div>
+            <div class="flex gap-3 flex-wrap">
+                <button onclick="regenerateCharacter()" class="bg-primary/20 border border-primary/30 px-4 py-2 rounded-lg text-xs hover:bg-primary/30"><i class="fas fa-sync-alt mr-1"></i> Regenerate</button>
+                <button onclick="resetCharacterToOriginal()" class="bg-gray-800 border border-gray-600 px-4 py-2 rounded-lg text-xs hover:bg-gray-700"><i class="fas fa-undo-alt mr-1"></i> Reset AI</button>
+                <button onclick="confirmCharacterAndContinue()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg text-sm font-bold">✅ Lanjut ke Judul</button>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ======================== STEP 6: Titles ======================== -->
+<section id="step-6" class="step-transition hide-step flex-grow flex flex-col justify-center max-w-5xl mx-auto w-full">
+    <div class="text-center mb-7">
+        <h2 class="text-3xl font-bold font-display mb-2" id="step6-header">Memproses Judul...</h2>
+        <div class="flex justify-center"><div id="title-provider-indicator" class="provider-badge badge-gemini mt-2">Menghubungi AI...</div></div>
+    </div>
+    <div id="titles-container" class="grid grid-cols-1 md:grid-cols-3 gap-5 hidden"></div>
+</section>
+
+<!-- ======================== STEP 7: Storyboard ======================== -->
+<section id="step-7" class="step-transition hide-step flex-grow flex flex-col w-full">
+    <div class="text-center mb-6" id="sb-loading-header">
+        <h2 class="text-3xl font-bold gradient-text">Merakit Storyboard...</h2>
+        <div class="progress-anim h-1.5 bg-gradient-to-r from-primary to-accent rounded-full max-w-md mx-auto mt-5"></div>
+        <div id="sb-provider-indicator" class="mt-3 provider-badge badge-gemini">Menghubungi AI...</div>
+    </div>
+    <div id="storyboard-ui" class="hidden flex-col h-full">
+        <div class="flex justify-between items-end flex-wrap gap-3 mb-4">
+            <div>
+                <h2 class="text-2xl font-bold" id="final-title"></h2>
+                <div id="used-provider-badge" class="mt-1"></div>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+                <button onclick="addNextScene()" id="btn-add-scene" class="bg-primary/10 border border-primary/40 hover:bg-primary/20 text-primary px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-plus mr-1"></i> Tambah Scene</button>
+                <button onclick="showAddMultipleScenesDialog()" class="bg-purple-500/20 border border-purple-500/40 hover:bg-purple-500/30 text-purple-300 px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-layer-group mr-1"></i> +Multi Scene</button>
+                <button onclick="askAIRecommendation()" class="bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 px-3 py-1.5 rounded-lg text-xs"><i class="fas fa-robot mr-1"></i> Rekomendasi AI</button>
+                <button onclick="exportTXT()" class="bg-panel border border-gray-700 px-3 py-1.5 rounded-lg text-xs hover:bg-gray-800"><i class="fas fa-file-alt mr-1"></i> TXT</button>
+                <button onclick="copyJsonData()" class="bg-panel border border-gray-700 px-3 py-1.5 rounded-lg text-xs hover:bg-gray-800"><i class="fas fa-copy"></i> JSON</button>
+            </div>
+        </div>
+        <!-- Multi-scene progress -->
+        <div id="multi-progress-wrapper" class="hidden mb-3">
+            <div class="text-xs text-gray-400 mb-1" id="multi-progress-label">Menghasilkan scene...</div>
+            <div class="scene-progress-bar"><div class="scene-progress-fill" id="multi-progress-fill" style="width:0%"></div></div>
+        </div>
+        <!-- Scene Nav -->
+        <div class="flex gap-2 mb-3 overflow-x-auto pb-1" id="scene-nav"></div>
+        <!-- Scene Content -->
+        <div class="glass-panel rounded-2xl p-5 border border-gray-700/50">
+            <!-- Narasi Panel -->
+            <div class="mb-4 bg-darker p-4 rounded-xl border-l-4 border-primary relative">
+                <div class="absolute top-2 right-2 flex gap-1">
+                    <button onclick="toggleEditNarasi()" id="btn-edit-narasi" class="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded"><i class="fas fa-edit"></i></button>
+                    <button onclick="copyNarasi()" class="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded">📋</button>
+                </div>
+                <h4 class="text-[10px] font-bold text-gray-500 uppercase mb-1">Narasi Voice Over — <span id="scene-duration-label">45</span>s</h4>
+                <p class="text-base text-gray-200 italic font-serif leading-relaxed pr-20" id="scene-narration"></p>
+                <textarea id="narasi-edit-area" class="edit-area hidden mt-2" rows="4" placeholder="Edit narasi..."></textarea>
+                <button id="btn-save-narasi" onclick="saveNarasiEdit()" class="hidden mt-2 text-xs bg-primary px-3 py-1 rounded-lg hover:bg-primaryHover">💾 Simpan</button>
+                <!-- TTS Controls -->
+                <div class="mt-3 pt-3 border-t border-gray-700 flex flex-wrap items-center gap-3">
+                    <button id="tts-play-btn" class="voice-btn bg-indigo-800 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded-full"><i class="fas fa-play mr-1"></i> Play</button>
+                    <button id="tts-stop-btn" class="bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1.5 rounded-full"><i class="fas fa-stop mr-1"></i> Stop</button>
+                    <div class="flex items-center gap-2"><span class="text-xs text-gray-400">Rate:</span><input type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="1" class="w-20"></div>
+                    <div class="flex items-center gap-2"><span class="text-xs text-gray-400">Pitch:</span><input type="range" id="tts-pitch" min="0.5" max="2" step="0.1" value="1" class="w-20"></div>
+                    <select id="tts-voice-select" class="bg-gray-800 text-xs rounded px-2 py-1 border border-gray-600"></select>
+                </div>
+            </div>
+            <!-- Rekomendasi Suara -->
+            <div class="mb-4 bg-indigo-950/30 p-3 rounded-xl text-xs">
+                <div class="flex justify-between items-center mb-1">
+                    <span><i class="fas fa-microphone-alt text-indigo-300 mr-1"></i> Rekomendasi Suara:</span>
+                    <button onclick="copyVoiceSettings()" class="text-indigo-300 hover:text-white"><i class="fas fa-copy"></i> Copy</button>
+                </div>
+                <div class="grid grid-cols-2 gap-1 text-gray-300">
+                    <span>Browser TTS: <span id="voice-browser-rec" class="text-white"></span></span>
+                    <span>Pitch/Rate: <span id="voice-pitch" class="text-white"></span></span>
+                    <span>Model AI: <span id="voice-model" class="text-white"></span></span>
+                    <span>Emosi: <span id="voice-emotion" class="text-white"></span></span>
+                </div>
+            </div>
+            <!-- Keyframes -->
+            <div class="flex justify-between items-center mb-2">
+                <h4 class="text-[10px] font-bold text-gray-500 uppercase">Keyframes (setiap 5 detik)</h4>
+                <button onclick="regenerateCurrentScene()" class="text-xs text-primary hover:underline"><i class="fas fa-sync-alt mr-1"></i>Regenerate Scene</button>
+            </div>
+            <div class="flex gap-4 overflow-x-auto pb-2" id="keyframes-container"></div>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<script>
+// ======================== STATE ========================
+let state = {
+    step: 1, visualStyle: '', aspectRatio: '16:9', language: 'Indonesian', idea: '', format: '',
+    selectedTitleObj: null, titlesData: [], storyboardData: [], currentSceneIndex: 0,
+    activeProvider: null, characterDescription: '',
+    characterName: '', characterPersonality: '', characterAppearance: '', characterPrompt: '', characterOriginal: null,
+    durationSec: 45, totalMinutes: 10, estimatedScenes: 13,
+    autoSweep: true
+};
+function saveState() { try { localStorage.setItem('cineai_state', JSON.stringify(state)); } catch(e){} }
+function loadState() {
+    try {
+        const saved = localStorage.getItem('cineai_state');
+        if(saved) { Object.assign(state, JSON.parse(saved)); applyStateToUI(); }
+    } catch(e){}
+}
+function applyStateToUI() {
+    // restore style card selection
+    if(state.visualStyle) {
+        document.querySelectorAll('.style-card').forEach(c => {
+            c.classList.toggle('selected', c.dataset.style === state.visualStyle);
+        });
+    }
+    setRatio(state.aspectRatio || '16:9');
+    const ls = document.getElementById('lang-select'); if(ls) ls.value = state.language || 'Indonesian';
+    const ii = document.getElementById('idea-input'); if(ii) ii.value = state.idea || '';
+    const ds = document.getElementById('duration-slider');
+    const dv = document.getElementById('duration-value');
+    if(ds){ ds.value = state.durationSec || 45; if(dv) dv.innerText = (state.durationSec||45)+' detik'; }
+    const tm = document.getElementById('total-minutes'); if(tm) tm.value = state.totalMinutes || 10;
+    updateEstimatedScenes();
+    updateSweepUI();
+    // restore correct step
+    if(state.step && state.step > 1) {
+        for(let i=1;i<=7;i++){
+            const el=document.getElementById(`step-${i}`);
+            if(!el) continue;
+            if(i===state.step){ el.style.display='flex'; el.classList.remove('hide-step'); el.classList.add('show-step'); }
+            else { el.style.display='none'; el.classList.add('hide-step'); el.classList.remove('show-step'); }
+        }
+        updateStepIndicator(state.step);
+    }
+}
+window.addEventListener('load', () => { loadState(); loadKeys(); });
+
+// ======================== Estimated Scenes ========================
+function updateEstimatedScenes() {
+    const totalMin = parseInt(document.getElementById('total-minutes').value) || 10;
+    const durSec = parseInt(document.getElementById('duration-slider').value) || 45;
+    state.totalMinutes = totalMin; state.durationSec = durSec;
+    const scenes = Math.ceil((totalMin * 60) / durSec);
+    state.estimatedScenes = scenes;
+    document.getElementById('estimated-scenes').innerText = scenes;
+    document.getElementById('scene-warning').classList.toggle('hidden', scenes <= 50);
+    saveState();
+}
+
+// ======================== PROVIDERS ========================
+const PROVIDERS = [
+    { id:'gemini', name:'Gemini 2.5 Flash', badgeClass:'badge-gemini',
+      getKey:()=>document.getElementById('key-gemini').value.trim(),
+      validate:(k)=>k.startsWith('AIza')||k.startsWith('aq'),
+      call:async(sys,usr)=>callGemini(sys,usr) },
+    { id:'groq', name:'Groq Llama 3.3', badgeClass:'badge-groq',
+      getKey:()=>document.getElementById('key-groq').value.trim(),
+      validate:(k)=>k.startsWith('gsk_'),
+      call:async(sys,usr)=>callGroq(sys,usr) },
+    { id:'gpt', name:'GPT-4o mini', badgeClass:'badge-gpt',
+      getKey:()=>document.getElementById('key-gpt').value.trim(),
+      validate:(k)=>k.startsWith('sk-'),
+      call:async(sys,usr)=>callGPT(sys,usr) }
+];
+
+async function callGemini(sys,usr){
+    return new Promise(async(resolve,reject)=>{
+        let timer;
+        try{
+            const key=document.getElementById('key-gemini').value.trim();
+            if(!key){reject(new Error('NO_KEY'));return;}
+            timer=setTimeout(()=>reject(new Error('TIMEOUT')),30000);
+            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:usr}]}],systemInstruction:{parts:[{text:sys+'\nRespond ONLY with valid JSON.'}]},generationConfig:{responseMimeType:'application/json'}})});
+            clearTimeout(timer);
+            if(!res.ok){const e=await res.json(); reject(new Error(res.status===429?'QUOTA':e?.error?.message||'ERROR')); return;}
+            const data=await res.json();
+            const text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if(!text){reject(new Error('EMPTY'));return;}
+            resolve(JSON.parse(text.replace(/```json|```/g,'').trim()));
+        }catch(e){clearTimeout(timer);reject(e);}
+    });
+}
+async function callGroq(sys,usr){
+    return new Promise(async(resolve,reject)=>{
+        let timer;
+        try{
+            const key=document.getElementById('key-groq').value.trim();
+            if(!key){reject(new Error('NO_KEY'));return;}
+            timer=setTimeout(()=>reject(new Error('TIMEOUT')),30000);
+            const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:[{role:'system',content:sys+'\nRespond ONLY with valid JSON.'},{role:'user',content:usr}],temperature:0.7,max_tokens:3000})});
+            clearTimeout(timer);
+            if(!res.ok){const e=await res.json(); reject(new Error(res.status===429?'QUOTA':e?.error?.message||'ERROR')); return;}
+            const data=await res.json();
+            const text=data?.choices?.[0]?.message?.content;
+            if(!text){reject(new Error('EMPTY'));return;}
+            resolve(JSON.parse(text.replace(/```json|```/g,'').trim()));
+        }catch(e){clearTimeout(timer);reject(e);}
+    });
+}
+async function callGPT(sys,usr){
+    return new Promise(async(resolve,reject)=>{
+        let timer;
+        try{
+            const key=document.getElementById('key-gpt').value.trim();
+            if(!key){reject(new Error('NO_KEY'));return;}
+            timer=setTimeout(()=>reject(new Error('TIMEOUT')),30000);
+            const res=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},body:JSON.stringify({model:'gpt-4o-mini',messages:[{role:'system',content:sys+'\nRespond ONLY with valid JSON.'},{role:'user',content:usr}],temperature:0.7,max_tokens:3000,response_format:{type:'json_object'}})});
+            clearTimeout(timer);
+            if(!res.ok){const e=await res.json(); reject(new Error(res.status===429?'QUOTA':e?.error?.message||'ERROR')); return;}
+            const data=await res.json();
+            const text=data?.choices?.[0]?.message?.content;
+            if(!text){reject(new Error('EMPTY'));return;}
+            let parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+            if(Array.isArray(parsed)){resolve(parsed);return;}
+            const keyArr=Object.keys(parsed).find(k=>Array.isArray(parsed[k]));
+            resolve(keyArr?parsed[keyArr]:parsed);
+        }catch(e){clearTimeout(timer);reject(e);}
+    });
+}
+
+async function callWithSweep(sys,usr,indicatorId){
+    const auto = state.autoSweep;
+    const providers = auto ? PROVIDERS : [PROVIDERS[0]];
+    const setInd=(p,msg,spinning=true)=>{
+        const el=document.getElementById(indicatorId);
+        if(el){ el.className=`provider-badge ${p.badgeClass} inline-flex items-center gap-1.5`; el.innerHTML=`${spinning?'<i class="fas fa-circle-notch fa-spin text-[10px]"></i> ':''}${msg}`; }
+        // sweep dot
+        document.getElementById('sweep-dot').className=`w-2 h-2 rounded-full ${p.badgeClass==='badge-gemini'?'bg-blue-400':p.badgeClass==='badge-groq'?'bg-purple-400':'bg-green-400'} inline-block dot-active`;
+        document.getElementById('sweep-label').innerText=p.name;
+    };
+    let lastErr;
+    for(const p of providers){
+        const key=p.getKey();
+        if(!key || (p.validate && !p.validate(key))) continue;
+        setInd(p,`Menghubungi ${p.name}...`);
+        try{
+            const result=await p.call(sys,usr);
+            state.activeProvider=p;
+            setInd(p,`✓ ${p.name}`,false);
+            document.getElementById('sweep-dot').classList.remove('dot-active');
+            return result;
+        }catch(e){
+            lastErr=e;
+            if(e.message==='QUOTA'&&auto){ showToast(`${p.name} quota habis, coba provider lain...`,'warning'); continue; }
+            else if(e.message==='NO_KEY') continue;
+            else throw e;
+        }
+    }
+    // All providers failed
+    document.getElementById('sweep-dot').className='w-2 h-2 rounded-full bg-red-400 inline-block';
+    document.getElementById('sweep-label').innerText='Semua gagal';
+    throw new Error('ALL_PROVIDERS_FAILED');
+}
+
+// ======================== UI Helpers ========================
+let toastTimer;
+function showToast(msg, type='info'){
+    clearTimeout(toastTimer);
+    const t=document.getElementById('toast');
+    const icon=document.getElementById('toast-icon');
+    const colors={'info':'text-blue-400','success':'text-green-400','warning':'text-yellow-400','error':'text-red-400'};
+    const icons={'info':'fa-info-circle','success':'fa-check-circle','warning':'fa-exclamation-triangle','error':'fa-times-circle'};
+    icon.className=`fas ${icons[type]||'fa-info-circle'} ${colors[type]||'text-primary'}`;
+    document.getElementById('toast-msg').innerText=msg;
+    t.classList.remove('opacity-0','pointer-events-none');
+    toastTimer=setTimeout(()=>t.classList.add('opacity-0','pointer-events-none'),3500);
+}
+
+function showCustomModal({title, body, hasInput=false, inputDefault=3, onConfirm, onCancel}){
+    document.getElementById('modal-title').innerText=title;
+    document.getElementById('modal-body').innerText=body;
+    const inp=document.getElementById('modal-input');
+    inp.classList.toggle('hidden',!hasInput);
+    if(hasInput) inp.value=inputDefault;
+    const overlay=document.getElementById('custom-modal-overlay');
+    overlay.classList.add('active');
+    document.getElementById('modal-confirm').onclick=()=>{ overlay.classList.remove('active'); onConfirm(hasInput?inp.value:null); };
+    document.getElementById('modal-cancel').onclick=()=>{ overlay.classList.remove('active'); if(onCancel) onCancel(); };
+}
+
+function updateStepIndicator(step){
+    for(let i=1;i<=7;i++){
+        const el=document.getElementById(`si-${i}`);
+        if(!el) continue;
+        el.className=`px-2 py-0.5 rounded ${i===step?'text-primary font-bold bg-primary/10':i<step?'text-gray-500':'text-gray-700'}`;
+    }
+}
+
+function transitionStep(from, to){
+    const fromEl=document.getElementById(`step-${from}`), toEl=document.getElementById(`step-${to}`);
+    if(fromEl){ fromEl.classList.remove('show-step'); fromEl.classList.add('hide-step'); }
+    setTimeout(()=>{
+        if(fromEl) fromEl.style.display='none';
+        toEl.style.display='flex';
+        void toEl.offsetWidth;
+        toEl.classList.remove('hide-step'); toEl.classList.add('show-step');
+        state.step=to; saveState();
+        updateStepIndicator(to);
+        window.scrollTo(0,0);
+    },300);
+}
+function prevStep(to){ transitionStep(state.step,to); }
+function resetApp(){ localStorage.removeItem('cineai_state'); location.reload(); }
+function toggleApiModal(){ const el=document.getElementById('api-modal-overlay'); el.classList.toggle('hidden'); el.classList.toggle('flex'); }
+function handleOverlayClick(e){ if(e.target===document.getElementById('api-modal-overlay')) toggleApiModal(); }
+function saveKeys(){ localStorage.setItem('cineai_keys',JSON.stringify({gemini:document.getElementById('key-gemini').value,groq:document.getElementById('key-groq').value,gpt:document.getElementById('key-gpt').value})); updateApiDot(); }
+function updateApiDot(){ const has=!!(document.getElementById('key-gemini').value||document.getElementById('key-groq').value||document.getElementById('key-gpt').value); document.getElementById('api-key-dot').className=has?'w-1.5 h-1.5 rounded-full bg-green-400 ml-0.5':'w-1.5 h-1.5 rounded-full bg-gray-600 ml-0.5'; }
+function loadKeys(){ const saved=JSON.parse(localStorage.getItem('cineai_keys')||'{}'); if(saved.gemini) document.getElementById('key-gemini').value=saved.gemini; if(saved.groq) document.getElementById('key-groq').value=saved.groq; if(saved.gpt) document.getElementById('key-gpt').value=saved.gpt; updateApiDot(); }
+function toggleSweep(){
+    state.autoSweep=!state.autoSweep;
+    document.getElementById('auto-sweep-toggle').value=state.autoSweep?'1':'0';
+    updateSweepUI(); saveState();
+}
+function updateSweepUI(){
+    const on=state.autoSweep;
+    const track=document.getElementById('sweep-track');
+    const thumb=document.getElementById('sweep-thumb');
+    if(track) track.style.background=on?'#6366f1':'#374151';
+    if(thumb) thumb.style.transform=on?'translateX(16px)':'translateX(2px)';
+}
+async function testProviders(){
+    showToast('Testing providers...','info');
+    for(const p of PROVIDERS){
+        if(!p.getKey()){ showToast(`${p.name}: no key`,'warning'); continue; }
+        try{ await p.call('Respond JSON: {"ok":true}','test'); showToast(`${p.name}: ✅ OK`,'success'); }
+        catch(e){ showToast(`${p.name}: ❌ ${e.message}`,'warning'); }
+    }
+}
+
+// ======================== STEP 1-3 ========================
+function selectAnimeStyle(style){
+    state.visualStyle=style;
+    document.querySelectorAll('.style-card').forEach(c => c.classList.toggle('selected', c.dataset.style === style));
+    saveState();
+    setTimeout(()=>transitionStep(1,2), 200);
+}
+function setRatio(ratio){
+    state.aspectRatio=ratio;
+    const active='py-4 rounded-xl border border-primary bg-primary/10 text-white font-medium';
+    const inactive='py-4 rounded-xl border border-gray-700 bg-panel text-gray-400 font-medium';
+    const a=document.getElementById('btn-ratio-169'), b=document.getElementById('btn-ratio-916');
+    if(a) a.className=ratio==='16:9'?active:inactive;
+    if(b) b.className=ratio==='9:16'?active:inactive;
+    saveState();
+}
+function goToStep3(){
+    state.language=document.getElementById('lang-select').value;
+    state.durationSec=parseInt(document.getElementById('duration-slider').value);
+    state.totalMinutes=parseInt(document.getElementById('total-minutes').value);
+    updateEstimatedScenes(); saveState();
+    transitionStep(2,3);
+}
+function fillInspiration(){
+    const ideas=["Seorang gadis desa yang bisa bicara dengan roh hutan harus menyelamatkan saudaranya dari kutukan kuno.","Di kota futuristik, hacker remaja menemukan AI pemerintah sadar dan ingin berteman.","Pemuda tersesat ke dunia game online dan harus bertarung untuk keluar.","Dua sahabat kecil terpisah waktu, bertemu sebagai musuh dalam perang kerajaan."];
+    document.getElementById('idea-input').value=ideas[Math.floor(Math.random()*ideas.length)];
+}
+function submitIdea(){
+    const idea=document.getElementById('idea-input').value.trim();
+    if(!idea){ showToast('Isi ide cerita!','warning'); return; }
+    state.idea=idea; saveState();
+    document.getElementById('chat-user-idea').innerText=idea;
+    transitionStep(3,4);
+    setTimeout(()=>callAIFormatOptions(),600);
+}
+
+// ======================== STEP 4 ========================
+async function callAIFormatOptions(){
+    const sys=`Kamu sutradara anime. Berdasarkan ide user, buat 2-3 opsi alur cerita unik. Output JSON array: [{"nama":"...","deskripsi":"..."}]`;
+    const usr=`Ide: ${state.idea}\nGaya: ${state.visualStyle}`;
+    try{
+        const res=await callWithSweep(sys,usr,'format-provider-badge');
+        const opts=Array.isArray(res)?res:(res.options||[res]);
+        renderFormatOptions(opts);
+        const badge=document.getElementById('format-provider-badge');
+        if(badge&&state.activeProvider){ badge.className=`provider-badge ${state.activeProvider.badgeClass}`; badge.innerText=state.activeProvider.name; badge.classList.remove('hidden'); }
+    }catch(e){
+        console.error(e);
+        renderFormatOptions([{nama:"One-shot Epik",deskripsi:"Cerita lengkap dengan klimaks"},{nama:"Series Bersambung",deskripsi:"Akhir menggantung"},{nama:"Misteri Twist",deskripsi:"Kejutan di akhir"}]);
+    }
+}
+function renderFormatOptions(options){
+    document.getElementById('ai-typing').classList.add('hidden');
+    document.getElementById('ai-question').classList.remove('hidden');
+    const container=document.getElementById('format-options-container');
+    container.innerHTML='';
+    options.forEach(opt=>{
+        const btn=document.createElement('button');
+        btn.className="py-3 px-4 rounded-xl border border-gray-600 bg-panel hover:bg-gray-700 text-left w-full";
+        btn.innerHTML=`<div class="font-bold">${escapeHtml(opt.nama)}</div><div class="text-xs text-gray-400">${escapeHtml(opt.deskripsi)}</div>`;
+        btn.onclick=()=>{ state.format=opt.nama; saveState(); transitionStep(4,5); callAIGenerateCharacter(); };
+        container.appendChild(btn);
+    });
+}
+
+// ======================== STEP 5 ========================
+async function callAIGenerateCharacter(){
+    document.getElementById('char-loading').classList.remove('hidden');
+    document.getElementById('char-content').classList.add('hidden');
+    const sys=`Kamu penulis karakter anime. Berdasarkan ide cerita, gaya ${state.visualStyle}, alur ${state.format}, buat satu karakter utama (protagonis). Output JSON: {"name":"...","personality":"...","appearance":"...","image_prompt":"Prompt gambar detail dalam bahasa Inggris, mencakup gaya visual, deskripsi fisik, pose, ekspresi, lighting."}`;
+    const usr=`Ide: ${state.idea}`;
+    try{
+        const res=await callWithSweep(sys,usr,'char-loading-label');
+        state.characterName=res.name;
+        state.characterPersonality=res.personality;
+        state.characterAppearance=res.appearance;
+        state.characterPrompt=res.image_prompt;
+        state.characterOriginal={name:res.name,personality:res.personality,appearance:res.appearance,prompt:res.image_prompt};
+        document.getElementById('char-name').value=state.characterName;
+        document.getElementById('char-personality').value=state.characterPersonality;
+        document.getElementById('char-appearance').value=state.characterAppearance;
+        document.getElementById('char-prompt').value=state.characterPrompt;
+        document.getElementById('char-loading').classList.add('hidden');
+        document.getElementById('char-content').classList.remove('hidden');
+        saveState();
+    }catch(e){
+        showToast('Gagal generate karakter','error');
+        document.getElementById('char-loading').classList.add('hidden');
+        prevStep(4);
+    }
+}
+function regenerateCharacter(){ callAIGenerateCharacter(); }
+function resetCharacterToOriginal(){
+    if(state.characterOriginal){
+        state.characterName=state.characterOriginal.name; state.characterPersonality=state.characterOriginal.personality;
+        state.characterAppearance=state.characterOriginal.appearance; state.characterPrompt=state.characterOriginal.prompt;
+        document.getElementById('char-name').value=state.characterName;
+        document.getElementById('char-personality').value=state.characterPersonality;
+        document.getElementById('char-appearance').value=state.characterAppearance;
+        document.getElementById('char-prompt').value=state.characterPrompt;
+        saveState(); showToast('Reset ke versi AI awal','success');
+    }
+}
+function confirmCharacterAndContinue(){
+    state.characterName=document.getElementById('char-name').value;
+    state.characterPersonality=document.getElementById('char-personality').value;
+    state.characterAppearance=document.getElementById('char-appearance').value;
+    state.characterPrompt=document.getElementById('char-prompt').value;
+    saveState(); transitionStep(5,6); callAIToGenerateTitles();
+}
+
+// ======================== STEP 6 ========================
+async function callAIToGenerateTitles(){
+    const sys=`Buat 3 judul dan sinopsis singkat berdasarkan ide, gaya ${state.visualStyle}, format ${state.format}, dengan karakter utama "${state.characterName}" (${state.characterPersonality}). Bahasa: ${state.language}. Output JSON array: [{"judul":"...","brief":"..."}]`;
+    const usr=`Ide: ${state.idea}`;
+    try{
+        const res=await callWithSweep(sys,usr,'title-provider-indicator');
+        state.titlesData=Array.isArray(res)?res:(res.titles||[res]);
+        renderTitles(); saveState();
+    }catch(e){
+        state.titlesData=[{judul:"Petualangan Ajaib",brief:"Seorang anak menemukan lorong rahasia"},{judul:"Bayangan Kota Senja",brief:"Detektif cilik mengungkap misteri"},{judul:"Pewaris Terakhir",brief:"Gadis biasa keturunan penyihir"}];
+        renderTitles();
+    }
+}
+function renderTitles(){
+    document.getElementById('title-provider-indicator').classList.add('hidden');
+    document.getElementById('step6-header').innerText='Pilih Arah Cerita';
+    const container=document.getElementById('titles-container');
+    container.innerHTML='';
+    state.titlesData.forEach((item,idx)=>{
+        const card=document.createElement('div');
+        card.className="glass-panel p-5 rounded-2xl hover:border-primary border border-transparent cursor-pointer transition-all";
+        card.innerHTML=`<div class="text-[10px] font-bold text-primary">Opsi ${idx+1}</div><h3 class="text-lg font-bold mt-1">${escapeHtml(item.judul)}</h3><p class="text-xs text-gray-400 mt-1">${escapeHtml(item.brief)}</p><div class="mt-3 text-xs text-primary">Pilih →</div>`;
+        card.onclick=()=>{ state.selectedTitleObj=item; saveState(); transitionStep(6,7); callAIToGenerateStoryboard(); };
+        container.appendChild(card);
+    });
+    container.classList.remove('hidden');
+}
+
+// ======================== STEP 7 ========================
+function getKeyframeSeconds(duration){ let s=[]; for(let i=0;i<=duration;i+=5) s.push(i); if(s[s.length-1]!==duration) s.push(duration); return s; }
+function getStyleContext(style){ const m={'Studio Ghibli':'Ghibli style, hand-painted, soft colors','Shounen Battle':'dynamic lines, speed lines, bold shadows','Isekai Fantasy':'fantasy world, magic aura, ethereal light','Donghua':'elegant ink lines, flowing silk, traditional Chinese','Shoujo Romance':'soft pastel, sparkles, shoujo bubbles','90s Retro Anime':'cel-shading, film grain, VHS aesthetic'}; return m[style]||`${style} anime style`; }
+
+async function callAIToGenerateStoryboard(){
+    const duration=state.durationSec;
+    const keyframeSecs=getKeyframeSeconds(duration);
+    const charDesc=`${state.characterName}: ${state.characterAppearance}`;
+    const sysPrompt=`Kamu storyboarder anime. Buat 1 scene pembuka. Durasi ${duration} detik. Keyframe pada detik: ${keyframeSecs.join(',')}. Narasi sekitar ${Math.floor(duration*1.8)} kata, bahasa ${state.language}. Karakter utama: ${charDesc}. Setiap image_prompt WAJIB mencantumkan deskripsi fisik karakter secara konsisten. image_prompt sangat detail (min 50 kata) mencakup gaya visual (${getStyleContext(state.visualStyle)}), komposisi ${state.aspectRatio==='16:9'?'landscape':'portrait'}. video_prompt detail gerakan kamera. Output JSON array: [{"scene_number":1,"narration":"...","keyframes":[{"second":0,"image_prompt":"...","video_prompt":"..."}]}]`;
+    const usr=`Judul: ${state.selectedTitleObj.judul}\nBrief: ${state.selectedTitleObj.brief}\nGaya: ${state.visualStyle}\nRatio: ${state.aspectRatio}`;
+    try{
+        const res=await callWithSweep(sysPrompt,usr,'sb-provider-indicator');
+        state.storyboardData=Array.isArray(res)?res:[res];
+        // ensure scene numbers are sequential
+        state.storyboardData.forEach((s,i)=>s.scene_number=i+1);
+        renderStoryboardUI(); saveState();
+    }catch(e){
+        console.error(e);
+        const kfs=getKeyframeSeconds(duration).map(sec=>({second:sec,image_prompt:`${charDesc}, ${state.visualStyle} anime style, cinematic composition`,video_prompt:`Slow zoom in`}));
+        state.storyboardData=[{scene_number:1,narration:`Narasi contoh ${duration} detik.`,keyframes:kfs}];
+        renderStoryboardUI();
+        showToast('Pakai data fallback — cek API key','warning');
+    }
+}
+
+function getVoiceRecommendation(){
+    const isID=state.language==='Indonesian';
+    const map={
+        'Studio Ghibli':{model:'en-US-Neural2-F',pitch:'+1.5',speed:'0.90',emotion:'gentle',browserLang:'id-ID'},
+        'Shounen Battle':{model:'en-US-Neural2-D',pitch:'+2.0',speed:'1.05',emotion:'intense',browserLang:'id-ID'},
+        'Isekai Fantasy':{model:'en-US-Neural2-C',pitch:'+1.0',speed:'0.95',emotion:'adventurous',browserLang:'id-ID'},
+        'Donghua':{model:'cmn-CN-Wavenet-B',pitch:'+0.5',speed:'0.92',emotion:'elegant',browserLang:'id-ID'},
+        'Shoujo Romance':{model:'en-US-Neural2-A',pitch:'+2.5',speed:'0.88',emotion:'romantic',browserLang:'id-ID'},
+        '90s Retro Anime':{model:'en-US-Neural2-I',pitch:'+0.0',speed:'0.98',emotion:'nostalgic',browserLang:'id-ID'}
+    };
+    const rec=map[state.visualStyle]||map['Studio Ghibli'];
+    return {
+        model: isID ? 'id-ID-Wavenet-A (Google AI Studio)' : rec.model,
+        pitchSpeed: `pitch:${rec.pitch}, rate:${rec.speed}`,
+        lang: isID ? 'id-ID' : 'en-US',
+        emotion: rec.emotion,
+        browserRec: isID ? 'Cari voice "id-ID" atau "Indonesian"' : 'Cari voice "en-US"'
+    };
+}
+
+function renderStoryboardUI(){
+    document.getElementById('sb-loading-header').classList.add('hidden');
+    const ui=document.getElementById('storyboard-ui');
+    ui.classList.remove('hidden'); ui.classList.add('flex');
+    document.getElementById('final-title').innerText=state.selectedTitleObj?.judul||'Storyboard';
+    document.getElementById('scene-duration-label').innerText=state.durationSec;
+    if(state.activeProvider) document.getElementById('used-provider-badge').innerHTML=`<span class="provider-badge ${state.activeProvider.badgeClass}">${state.activeProvider.name}</span>`;
+    const voiceRec=getVoiceRecommendation();
+    document.getElementById('voice-browser-rec').innerText=voiceRec.browserRec;
+    document.getElementById('voice-model').innerText=voiceRec.model;
+    document.getElementById('voice-pitch').innerText=voiceRec.pitchSpeed;
+    document.getElementById('voice-emotion').innerText=voiceRec.emotion;
+    // Scene nav
+    const nav=document.getElementById('scene-nav'); nav.innerHTML='';
+    state.storyboardData.forEach((s,idx)=>{
+        const btn=document.createElement('button');
+        btn.className=`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap ${idx===state.currentSceneIndex?'bg-primary text-white':'bg-gray-800 text-gray-400 hover:bg-gray-700'}`;
+        btn.innerText=`Scene ${s.scene_number}`;
+        btn.onclick=()=>{ state.currentSceneIndex=idx; renderCurrentScene(); renderStoryboardNav(); };
+        nav.appendChild(btn);
+    });
+    renderCurrentScene();
+    initTTS();
+}
+
+function renderStoryboardNav(){
+    const nav=document.getElementById('scene-nav'); nav.innerHTML='';
+    state.storyboardData.forEach((s,idx)=>{
+        const btn=document.createElement('button');
+        btn.className=`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap ${idx===state.currentSceneIndex?'bg-primary text-white':'bg-gray-800 text-gray-400 hover:bg-gray-700'}`;
+        btn.innerText=`Scene ${s.scene_number}`;
+        btn.onclick=()=>{ state.currentSceneIndex=idx; renderCurrentScene(); renderStoryboardNav(); };
+        nav.appendChild(btn);
+    });
+}
+
+function renderCurrentScene(){
+    const scene=state.storyboardData[state.currentSceneIndex];
+    if(!scene) return;
+    // Hide edit mode
+    document.getElementById('scene-narration').classList.remove('hidden');
+    document.getElementById('narasi-edit-area').classList.add('hidden');
+    document.getElementById('btn-save-narasi').classList.add('hidden');
+    document.getElementById('scene-narration').innerText=scene.narration;
+    window.currentNarasi=scene.narration;
+    const container=document.getElementById('keyframes-container');
+    container.innerHTML='';
+    const ratioClass=state.aspectRatio==='16:9'?'aspect-video':'aspect-[9/16]';
+    scene.keyframes.forEach((kf,kfIdx)=>{
+        const card=document.createElement('div');
+        card.className="flex-shrink-0 w-80 bg-darker rounded-xl border border-gray-700 overflow-hidden";
+        const imgEsc=escapeHtml(kf.image_prompt);
+        const vidEsc=escapeHtml(kf.video_prompt);
+        // Use data attributes for safe copy, avoid inline JS injection
+        card.innerHTML=`
+            <div class="relative ${ratioClass} bg-gray-900 flex items-center justify-center">
+                <i class="fas fa-image text-gray-700 text-3xl"></i>
+                <div class="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 rounded">${kf.second}s</div>
+                <button data-kfidx="${kfIdx}" data-type="image" class="kf-copy-btn absolute top-2 right-2 bg-gray-800/80 hover:bg-primary w-6 h-6 rounded"><i class="fas fa-copy text-xs"></i></button>
+            </div>
+            <div class="p-2">
+                <p class="text-[10px] text-gray-500">Image prompt</p>
+                <p class="text-[11px] line-clamp-3">${imgEsc}</p>
+                <button data-kfidx="${kfIdx}" data-type="image" class="kf-copy-btn text-[10px] text-primary mt-1 hover:underline"><i class="fas fa-copy"></i> Copy Image</button>
+                <div id="kf-edit-${kfIdx}" class="mt-2 hidden">
+                    <textarea class="edit-area" rows="3" id="kf-img-${kfIdx}">${imgEsc}</textarea>
+                    <button onclick="saveKfEdit(${kfIdx})" class="text-[10px] bg-primary px-2 py-0.5 rounded mt-1 hover:bg-primaryHover">Simpan</button>
+                </div>
+                <button onclick="toggleKfEdit(${kfIdx})" class="text-[10px] text-gray-500 mt-1 hover:text-white"><i class="fas fa-pen"></i> Edit</button>
+                <p class="text-[10px] text-gray-500 mt-2">Video prompt</p>
+                <p class="text-[11px] line-clamp-2">${vidEsc}</p>
+                <button data-kfidx="${kfIdx}" data-type="video" class="kf-copy-btn text-[10px] text-primary mt-1 hover:underline"><i class="fas fa-copy"></i> Copy Video</button>
+            </div>`;
+        container.appendChild(card);
+    });
+    // Bind copy buttons safely via event delegation
+    container.querySelectorAll('.kf-copy-btn').forEach(btn=>{
+        btn.onclick=()=>{
+            const idx=parseInt(btn.dataset.kfidx);
+            const type=btn.dataset.type;
+            const text=type==='image'?scene.keyframes[idx].image_prompt:scene.keyframes[idx].video_prompt;
+            copyToClipboard(text, type==='image'?'Image prompt':'Video prompt');
+        };
+    });
+}
+
+// Keyframe edit
+function toggleKfEdit(kfIdx){
+    const area=document.getElementById(`kf-edit-${kfIdx}`);
+    if(area) area.classList.toggle('hidden');
+}
+function saveKfEdit(kfIdx){
+    const scene=state.storyboardData[state.currentSceneIndex];
+    const newText=document.getElementById(`kf-img-${kfIdx}`).value.trim();
+    if(newText && scene.keyframes[kfIdx]){ scene.keyframes[kfIdx].image_prompt=newText; saveState(); renderCurrentScene(); showToast('Image prompt disimpan','success'); }
+}
+
+// Narasi edit
+function toggleEditNarasi(){
+    const scene=state.storyboardData[state.currentSceneIndex];
+    const narEl=document.getElementById('scene-narration');
+    const editEl=document.getElementById('narasi-edit-area');
+    const saveBtn=document.getElementById('btn-save-narasi');
+    const isEditing=!editEl.classList.contains('hidden');
+    if(isEditing){ narEl.classList.remove('hidden'); editEl.classList.add('hidden'); saveBtn.classList.add('hidden'); }
+    else { narEl.classList.add('hidden'); editEl.value=scene.narration; editEl.classList.remove('hidden'); saveBtn.classList.remove('hidden'); }
+}
+function saveNarasiEdit(){
+    const scene=state.storyboardData[state.currentSceneIndex];
+    const newText=document.getElementById('narasi-edit-area').value.trim();
+    if(newText){ scene.narration=newText; window.currentNarasi=newText; saveState(); toggleEditNarasi(); document.getElementById('scene-narration').innerText=newText; showToast('Narasi disimpan','success'); }
+}
+
+function escapeHtml(str){ if(!str) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function copyToClipboard(text,label){ navigator.clipboard.writeText(text).then(()=>showToast(`✅ ${label} disalin`,'success')).catch(()=>showToast('Gagal copy','warning')); }
+function copyNarasi(){ if(window.currentNarasi) copyToClipboard(window.currentNarasi,'Narasi'); }
+function copyVoiceSettings(){
+    const txt=`Browser TTS: ${document.getElementById('voice-browser-rec').innerText}\nPitch/Rate: ${document.getElementById('voice-pitch').innerText}\nModel AI: ${document.getElementById('voice-model').innerText}\nEmosi: ${document.getElementById('voice-emotion').innerText}`;
+    copyToClipboard(txt,'Voice settings');
+}
+function copyJsonData(){ copyToClipboard(JSON.stringify(state.storyboardData,null,2),'JSON data'); }
+function exportTXT(){
+    let out=`CineAI Flow — ${state.selectedTitleObj?.judul||'Storyboard'}\n${'='.repeat(50)}\n\n`;
+    state.storyboardData.forEach(s=>{
+        out+=`=== SCENE ${s.scene_number} ===\nNarasi:\n${s.narration}\n\n`;
+        s.keyframes.forEach(k=>{ out+=`[${k.second}s]\n  IMAGE: ${k.image_prompt}\n  VIDEO: ${k.video_prompt}\n\n`; });
+        out+='\n';
+    });
+    const blob=new Blob([out],{type:'text/plain'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`storyboard_${state.selectedTitleObj?.judul||'cineai'}.txt`;
+    a.click(); showToast('TXT terunduh','success');
+}
+
+// ======================== TTS ========================
+let ttsUtterance=null, ttsVoices=[];
+function initTTS(){
+    const sel=document.getElementById('tts-voice-select');
+    function loadVoices(){
+        ttsVoices=window.speechSynthesis.getVoices();
+        sel.innerHTML='';
+        ttsVoices.forEach(v=>{ const o=document.createElement('option'); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); });
+        const defaultLang=state.language==='Indonesian'?'id':'en';
+        for(let i=0;i<ttsVoices.length;i++) if(ttsVoices[i].lang.startsWith(defaultLang)){ sel.selectedIndex=i; break; }
+    }
+    window.speechSynthesis.onvoiceschanged=loadVoices;
+    loadVoices();
+    document.getElementById('tts-play-btn').onclick=()=>playNarasi();
+    document.getElementById('tts-stop-btn').onclick=()=>{ window.speechSynthesis.cancel(); ttsUtterance=null; document.getElementById('tts-play-btn').classList.remove('playing'); };
+}
+function playNarasi(){
+    if(ttsUtterance){ window.speechSynthesis.cancel(); ttsUtterance=null; }
+    const text=document.getElementById('scene-narration').innerText;
+    if(!text) return;
+    const utt=new SpeechSynthesisUtterance(text);
+    utt.rate=parseFloat(document.getElementById('tts-rate').value);
+    utt.pitch=parseFloat(document.getElementById('tts-pitch').value);
+    const voice=ttsVoices.find(v=>v.name===document.getElementById('tts-voice-select').value);
+    if(voice) utt.voice=voice;
+    utt.onstart=()=>document.getElementById('tts-play-btn').classList.add('playing');
+    utt.onend=utt.onerror=()=>{ document.getElementById('tts-play-btn').classList.remove('playing'); ttsUtterance=null; };
+    ttsUtterance=utt;
+    window.speechSynthesis.speak(utt);
+}
+
+// ======================== ADD SCENES ========================
+async function addNextScene(){
+    const btn=document.getElementById('btn-add-scene');
+    btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>';
+    const prev=state.storyboardData[state.storyboardData.length-1];
+    const nextNum=state.storyboardData.length+1;
+    const charDesc=`${state.characterName}: ${state.characterAppearance}`;
+    const sys=`Lanjutkan storyboard dengan scene ${nextNum}. Durasi ${state.durationSec} detik. Karakter: ${charDesc}. Gaya: ${state.visualStyle}. Output JSON object (bukan array): {"scene_number":${nextNum},"narration":"...","keyframes":[...]}`;
+    const usr=`Scene sebelumnya: ${prev.narration}\nGaya: ${state.visualStyle}\nAspect: ${state.aspectRatio}`;
+    try{
+        const newScene=await callWithSweep(sys,usr,'sb-provider-indicator');
+        const sceneObj=Array.isArray(newScene)?newScene[0]:newScene;
+        sceneObj.scene_number=nextNum;
+        state.storyboardData.push(sceneObj);
+        state.currentSceneIndex=state.storyboardData.length-1;
+        renderStoryboardUI(); saveState();
+        showToast(`Scene ${nextNum} ditambahkan`,'success');
+    }catch(e){ showToast('Gagal tambah scene: '+e.message,'error'); }
+    finally{ btn.disabled=false; btn.innerHTML='<i class="fas fa-plus mr-1"></i> Tambah Scene'; }
+}
+
+function showAddMultipleScenesDialog(){
+    showCustomModal({
+        title: 'Tambah Beberapa Scene',
+        body: 'Berapa scene yang ingin ditambahkan? (1-10)',
+        hasInput: true,
+        inputDefault: 3,
+        onConfirm: (val)=>{
+            let num=parseInt(val);
+            if(isNaN(num)||num<1||num>10){ showToast('Masukkan angka 1-10','warning'); return; }
+            addMultipleScenes(num);
+        }
+    });
+}
+
+async function addMultipleScenes(count){
+    const btn=document.getElementById('btn-add-scene');
+    btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>';
+    const wrapper=document.getElementById('multi-progress-wrapper');
+    wrapper.classList.remove('hidden');
+    let successCount=0;
+    for(let i=0;i<count;i++){
+        document.getElementById('multi-progress-label').innerText=`Menghasilkan scene ${i+1} dari ${count}...`;
+        document.getElementById('multi-progress-fill').style.width=`${Math.round(((i)/count)*100)}%`;
+        const prev=state.storyboardData[state.storyboardData.length-1];
+        const nextNum=state.storyboardData.length+1;
+        const charDesc=`${state.characterName}: ${state.characterAppearance}`;
+        const sys=`Lanjutkan storyboard dengan scene ${nextNum}. Durasi ${state.durationSec} detik. Karakter: ${charDesc}. Gaya: ${state.visualStyle}. Output JSON object: {"scene_number":${nextNum},"narration":"...","keyframes":[...]}`;
+        const usr=`Scene sebelumnya: ${prev.narration}\nGaya: ${state.visualStyle}`;
+        try{
+            const newScene=await callWithSweep(sys,usr,'sb-provider-indicator');
+            const sceneObj=Array.isArray(newScene)?newScene[0]:newScene;
+            sceneObj.scene_number=nextNum;
+            state.storyboardData.push(sceneObj);
+            successCount++;
+            await new Promise(r=>setTimeout(r,300));
+        }catch(e){ showToast(`Gagal scene ${nextNum}: ${e.message}`,'warning'); break; }
+    }
+    document.getElementById('multi-progress-fill').style.width='100%';
+    setTimeout(()=>wrapper.classList.add('hidden'),1500);
+    state.currentSceneIndex=state.storyboardData.length-1;
+    renderStoryboardUI(); saveState();
+    btn.disabled=false; btn.innerHTML='<i class="fas fa-plus mr-1"></i> Tambah Scene';
+    if(successCount>0) showToast(`${successCount} scene berhasil ditambahkan`,'success');
+}
+
+async function askAIRecommendation(){
+    if(state.storyboardData.length===0) return;
+    const lastScene=state.storyboardData[state.storyboardData.length-1];
+    const sys=`Kamu editor film anime. Cerita saat ini memiliki ${state.storyboardData.length} scene. Berdasarkan alur, berapa scene lagi yang dibutuhkan untuk menyelesaikan cerita? Beri jawaban singkat: "Tambahkan X scene: [alasan singkat]" maksimal 50 kata.`;
+    const usr=`Judul: ${state.selectedTitleObj.judul}\nSinopsis: ${state.selectedTitleObj.brief}\nScene terakhir: ${lastScene.narration.substring(0,200)}`;
+    try{
+        const res=await callWithSweep(sys,usr,'sb-provider-indicator');
+        let recText=typeof res==='string'?res:(res.recommendation||JSON.stringify(res));
+        let numMatch=recText.match(/\b(\d+)\b/);
+        let suggested=numMatch?Math.min(Math.max(parseInt(numMatch[1]),1),10):3;
+        showCustomModal({
+            title: 'Rekomendasi AI',
+            body: `${recText}\n\nTambahkan ${suggested} scene sekarang?`,
+            onConfirm: ()=>addMultipleScenes(suggested)
+        });
+    }catch(e){ showToast('Gagal rekomendasi AI','warning'); }
+}
+
+async function regenerateCurrentScene(){
+    const scene=state.storyboardData[state.currentSceneIndex];
+    if(!scene) return;
+    const btn=document.querySelector('button[onclick="regenerateCurrentScene()"]');
+    if(btn){ btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>'; }
+    const charDesc=`${state.characterName}: ${state.characterAppearance}`;
+    const sys=`Regenerate scene ${scene.scene_number} storyboard anime. Durasi ${state.durationSec} detik. Karakter: ${charDesc}. Gaya: ${state.visualStyle}. Output JSON object: {"scene_number":${scene.scene_number},"narration":"...","keyframes":[...]}`;
+    const usr=`Judul: ${state.selectedTitleObj.judul}\nGaya: ${state.visualStyle}`;
+    try{
+        const res=await callWithSweep(sys,usr,'sb-provider-indicator');
+        const newScene=Array.isArray(res)?res[0]:res;
+        newScene.scene_number=scene.scene_number;
+        state.storyboardData[state.currentSceneIndex]=newScene;
+        renderStoryboardUI(); saveState();
+        showToast(`Scene ${scene.scene_number} di-regenerate`,'success');
+    }catch(e){ showToast('Gagal regenerate scene','error'); }
+    finally{ if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-sync-alt mr-1"></i>Regenerate Scene'; } }
+}
+
+// ======================== INIT ========================
+// Initial display
+document.getElementById('step-1').style.display='flex';
+['step-2','step-3','step-4','step-5','step-6','step-7'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display='none'; } });
+updateStepIndicator(1);
+</script>
+</body>
+</html>
